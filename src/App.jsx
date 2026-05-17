@@ -1,4 +1,4 @@
-import React, { useState, useEffect, act } from 'react';
+import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import axios from 'axios';
 import { TriangleAlert, Layers, Clock, Wifi, Funnel } from 'lucide-react';
@@ -15,7 +15,11 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [status, setStatus] = useState('connecting');
   const [filter, setFilter] = useState('All');
-  const[activeProject , setActiveProject] = useState('All')
+  const [activeProject, setActiveProject] = useState('All');
+  
+  // 1. FIXED: Added the missing searchQuery state
+  const [searchQuery, setSearchQuery] = useState(''); 
+
   useEffect(() => {
     const fetchLogs = async () => {
       try {
@@ -27,31 +31,82 @@ function App() {
     };
     fetchLogs();
 
-    socket.on('connect', () => setStatus('online'));
-    socket.on('new-log', (newLog) => {
-      setLogs((prev) => [newLog, ...prev]); 
-    });
+    const handleconnect = () => setStatus('online');
 
-    return () => socket.off('new-log');
+    // 2. FIXED: Parameter must be 'newLog', not 'prev'
+    const handleNewLog = (newLog) => {
+      setLogs((prev) => {
+        if (prev.some(log => log._id === newLog._id)) {
+          return prev;
+        }
+        return [newLog, ...prev];
+      });
+    };
+
+    socket.on('connect', handleconnect);
+    socket.on('new-log', handleNewLog);
+
+    return () => {
+      socket.off('connect', handleconnect);
+      socket.off('new-log', handleNewLog);
+    };
   }, []);
 
   const filteredLogs = logs.filter(l => {
     const severityMatch = filter === 'All' || l.severity === filter.toLowerCase();
-    const projectMatch = activeProject ===  'All' || l.project === activeProject;
-    return severityMatch && projectMatch;
-});
+    const projectMatch = activeProject === 'All' || l.project === activeProject;
+    
+    // Safety check for searchQuery
+    const searchMatch = searchQuery === '' || 
+      (l.message && l.message.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    return severityMatch && projectMatch && searchMatch;
+  });
+
+  const uniqueLogs = [];
+  const seenSignatures = new Set();
+
+  filteredLogs.forEach(log => {
+    const signature = `${log.project}::${log.message}`;
+    
+    if (!seenSignatures.has(signature)) {
+      seenSignatures.add(signature);
+      const identicalCount = filteredLogs.filter(l => `${l.project}::${l.message}` === signature).length;
+      uniqueLogs.push({ ...log, occurrences: identicalCount });
+    }
+  });
+
+  const handleresolve = async (e) =>{
+    const signature = `${e.project}::${e.message}`;
+
+    try{
+      await axios.delete('http://localhost:5000/api/logs/resolve' , {
+        data : {project : e.project , message : e.message}
+      })
+
+      setLogs((prevLogs) => prevLogs.filter(
+        (log) => `${log.project}::${log.message}` !== signature
+      ));
+    }catch(error){
+      console.error("Failed to resolve target:", error);
+    }
+  }
 
   return (
-    /* CRITICAL FIX: h-screen instead of min-h-screen, and added overflow-hidden */
     <div className="h-screen overflow-hidden bg-[#09090b] text-white flex flex-col font-sans selection:bg-red-500/30">
       
       <div className="flex-shrink-0">
-        <TopBar logCount={logs.length} status={status} />
+        <TopBar 
+          logCount={logs.length} 
+          status={status} 
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+        />
       </div>
       
       <main className="flex-1 max-w-[1440px] mx-auto w-full flex flex-col p-6 overflow-hidden">
         
-        {/* CRITICAL FIX: Added flex-shrink-0 so the stats stay fixed at the top */}
         <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 flex-shrink-0">
           <StatCard 
             label="Total Errors (24hr)" 
@@ -105,16 +160,18 @@ function App() {
                 ))}
               </div>
               <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
-                showing {filteredLogs.length} events
+                {/* Updated to show the true number of unique events on screen */}
+                showing {uniqueLogs.length} events
               </span>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3 relative feed-container">
               <div className="scan-line absolute inset-x-0 h-20 bg-gradient-to-b from-transparent via-red-500/[0.03] to-transparent pointer-events-none" />
               
-              {filteredLogs.length > 0 ? (
-                filteredLogs.map(log => (
-                  <ErrorCard key={log._id} log={log} />
+              {/* 3. FIXED: Changed filteredLogs.map to uniqueLogs.map */}
+              {uniqueLogs.length > 0 ? (
+                uniqueLogs.map(log => (
+                  <ErrorCard key={log._id} log={log} onResolve={handleresolve} />
                 ))
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 font-mono text-sm space-y-2 opacity-50">
@@ -125,7 +182,6 @@ function App() {
             </div>
           </section>
 
-          {/* CRITICAL FIX: Changed custom-scrollbar to feed-container to match CSS */}
           <aside className="flex-1 max-w-[300px] bg-[#111113] border border-zinc-800 rounded-2xl p-6 flex flex-col gap-8 overflow-y-auto feed-container">
             <ProjectStats logs={logs} activeProject={activeProject} onProjectSelect={setActiveProject}/>
             <div className="h-[1px] bg-zinc-800 my-2 flex-shrink-0" />

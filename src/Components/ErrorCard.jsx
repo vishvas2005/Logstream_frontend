@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const ErrorCard = ({ log }) => {
+const ErrorCard = ({ log  , onResolve}) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const severityStyles = {
@@ -11,7 +11,6 @@ const ErrorCard = ({ log }) => {
 
   return (
     <div 
-      onClick={() => setIsOpen(!isOpen)}
       className={`bg-[#111113] border border-zinc-800 border-l-[3px] rounded-lg p-4 mb-2 cursor-pointer transition-all hover:bg-[#18181b] hover:translate-x-1 ${severityStyles[log.severity] || severityStyles.critical}`}
     >
       <div className="flex justify-between items-start gap-4">
@@ -26,6 +25,7 @@ const ErrorCard = ({ log }) => {
               </span>
             )}
           </div>
+        
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[11px] font-mono text-zinc-500">{log.url}</span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
@@ -38,9 +38,18 @@ const ErrorCard = ({ log }) => {
             </span>
           </div>
         </div>
-        <button className="text-[10px] font-mono text-zinc-500 border border-zinc-800 px-2.5 py-2 mt-1  rounded hover:text-red-500 hover:border-red-500 transition-colors">
+        <button onClick={() => setIsOpen(!isOpen)} className="text-[10px] font-mono text-zinc-500 border border-zinc-800 px-2.5 py-2 mt-1  rounded hover:text-red-500 hover:border-red-500 transition-colors">
           {isOpen ? 'HIDE TRACE' : 'STACK TRACE'}
         </button>
+
+        <div className="flex gap-3 mt-4">
+        <button 
+          onClick={() => onResolve(log)}
+          className="text-xs font-mono px-4 py-2 -mt-3 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded hover:bg-emerald-500/20 transition-colors cursor-pointer"
+        >
+          RESOLVE TARGET
+        </button>
+         </div>
       </div>
 
       {isOpen && (
